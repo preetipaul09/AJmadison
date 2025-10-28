@@ -899,7 +899,7 @@ def DailyProcessStart(process_name):
 
 # HOST_1 , DB_1 ,USER_1 ,PASS_1 = 'localhost', 'mavqgqnzzu' , 'mavqgqnzzu','3XFDmNCpsK'
 # HOST4 , DB4 ,USER4 ,PASS4
-def getUrls(driver, vendor_id, vendor_url):
+def getUrls(vendor_id, vendor_url):
     conn, conn_1 = None, None
     try:
         conn = mysql.connector.connect(host=HOST, database=DB, user=USER, password=PASS)
@@ -953,7 +953,7 @@ def getUrls(driver, vendor_id, vendor_url):
 
                     logger.info(f"Processing URL: {url}")
                     try:
-                        scraper_unit(driver, vendor_product_id, product_id, url, vendor_url, vendor_id, product_mpn)
+                        scraper_unit(vendor_product_id, product_id, url, vendor_url, vendor_id, product_mpn)
                     except Exception as e:
                         logger.error(f"Error processing URL {url}: {e}")
                         continue
@@ -967,10 +967,11 @@ def getUrls(driver, vendor_id, vendor_url):
         if conn_1 and conn_1.is_connected():
             conn_1.close()
 
-def scraper_unit(driver, vendor_product_id, product_id, url, vendor_url, vendor_id, product_mpn):
+def scraper_unit(vendor_product_id, product_id, url, vendor_url, vendor_id, product_mpn):
     try:
         temp = {}
         logger.debug(url)
+        driver = triggerSelenium_chrome(useVPN=False)
         driver.get(url)
         time.sleep(5)
         driver.refresh()
@@ -1178,6 +1179,9 @@ def scraper_unit(driver, vendor_product_id, product_id, url, vendor_url, vendor_
     except Exception as e:
         # print(f"An error occurred in scraper_unit: {e}")
         logger.error(f"An error occurred in scraper_unit: {e}")
+    finally:
+        if driver:
+            driver.quit()
 
 def random_pause(min_time=2, max_time=5):
     """
@@ -1667,7 +1671,7 @@ import undetected_chromedriver as uc
 # from selenium.webdriver.chrome.options import Options
 from undetected_chromedriver import ChromeOptions
 
-def triggerSelenium_chrome(useVPN=True, checkIP=False, config_path="vpn.config.json"):
+def triggerSelenium_chrome(useVPN=False, checkIP=False, config_path="vpn.config.json"):
     with open(config_path) as f:
         configs = json.load(f)
 
@@ -1712,12 +1716,12 @@ if __name__ == '__main__':
         # options = ChromeOptions() ,"69.147.248.228:8800"
         # driver = uc.Chrome(version_main=139, options=options)
         
-        driver = triggerSelenium_chrome(useVPN=True)
-        if driver:
-            print("Driver found")
-            getUrls(driver, vendor_id, vendor_url)
-        else:
-            print("Driver not found!")
+        # driver = triggerSelenium_chrome(useVPN=False)
+        # if driver:
+        #     print("Driver found")
+        getUrls(vendor_id, vendor_url)
+        # else:
+        #     print("Driver not found!")
 
         totalScrapedProducts = Counts(vendor_id)
         
@@ -1738,6 +1742,6 @@ if __name__ == '__main__':
 
     except Exception as e:
         logger.error(f"An error occurred: {e}")
-    finally:
-        if driver:
-            driver.quit()
+    # finally:
+    #     if driver:
+    #         driver.quit()

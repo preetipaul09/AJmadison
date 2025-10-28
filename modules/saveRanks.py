@@ -33,7 +33,7 @@ last_7th_day = datetime.now() - timedelta(7)
 last_7th_day_date = last_7th_day.strftime("%Y-%m-%d")
 # 30 days ago date
 last_30th_day = datetime.now() - timedelta(30)
-last_30th_day_date = last_7th_day.strftime("%Y-%m-%d")
+last_30th_day_date = last_30th_day.strftime("%Y-%m-%d")
 # -----------------------------------------------------
 
 # Saving vendor ranking according to final price low to high
@@ -101,6 +101,10 @@ def saveRanks(data):
                         TempVendorPricing.delivery_text,
                         TempVendorPricing.vendorprice_stock_text,
                         TempVendorPricing.vendorprice_stock,
+                        TempVendorPricing.offer_heading,
+                        TempVendorPricing.offer_text,
+                        TempVendorPricing.In_cart_price,
+                        TempVendorPricing.product_page_price,
                         DENSE_RANK() OVER (PARTITION BY ProductVendor.vendor_product_id ORDER BY TempVendorPricing.vendorprice_date DESC) AS row_num
                     FROM TempVendorPricing
                     INNER JOIN ProductVendor ON TempVendorPricing.vendor_product_id = ProductVendor.vendor_product_id
@@ -109,12 +113,12 @@ def saveRanks(data):
                     WHERE
                         ProductVendor.product_id = {product_id}
                         AND ProductVendor.vendor_id NOT IN ({vendorsToExclude})
-                        AND ( TempVendorPricing.vendorprice_date BETWEEN DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND CURDATE() )
+                        AND ( TempVendorPricing.vendorprice_date BETWEEN DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND CURDATE() )
                         AND TempVendorPricing.is_suspicious = '0'
                         AND TempVendorPricing.product_condition = 'New'
                         AND TempVendorPricing.vendorprice_price > 0
                         AND TempVendorPricing.marked_as_unmatched = '0'
-                        AND ( TempVendorPricing.vendorprice_stock_text <> 'Out of stock online' OR TempVendorPricing.vendorprice_stock_text IS NULL )
+                        AND ( TempVendorPricing.vendorprice_stock_text NOT LIKE '%Out of stock%' OR TempVendorPricing.vendorprice_stock_text IS NULL )
                         AND Vendor.vendor_id <> {vendor_id} AND Vendor.vendor_id <> 10024
                     ORDER BY TempVendorPricing.vendorprice_finalprice ASC, ProductVendor.vendor_id = {vendor_id} DESC
                 )
@@ -145,42 +149,57 @@ def saveRanks(data):
                         "delivery_text_gmc" : row[14],
                         "delivery_text_website" : row[15],
                         "stock_text_website" : row[16],
-                        "stock" : row[17]
+                        "stock" : row[17],
+                        "offer_heading" : row[18],
+                        "offer_text" : row[19],
+                        "in_cart_price" : row[20],
+                        "product_page_price" : row[21]
                     })
             # Fetching current product's related products
             this.execute(f"""
-                SELECT
-                    TempVendorPricing.source,
-                    Vendor.vendor_name,
-                    TempVendorPricing.vendorprice_price,
-                    TempVendorPricing.vendorprice_finalprice,
-                    TempVendorPricing.vendorprice_shipping,
-                    TempVendorPricing.vendorprice_extra_discount,
-                    VendorURL.vendor_raw_url as vendor_url,
-                    ProductVendor.vendor_product_id,
-                    Vendor.vendor_id,
-                    TempVendorPricing.is_suspicious,
-                    TempVendorPricing.vendor_pricing_id,
-                    TempVendorPricing.vendorprice_date,
-                    TempVendorPricing.vendorprice_delivery_date,
-                    TempVendorPricing.vendorprice_isbackorder,
-                    TempVendorPricing.vendorprice_offers,
-                    TempVendorPricing.delivery_text,
-                    TempVendorPricing.vendorprice_stock_text,
-                    TempVendorPricing.vendorprice_stock
-                FROM RelatedProducts_Matching
-                INNER JOIN TempVendorPricing ON TempVendorPricing.vendor_product_id = RelatedProducts_Matching.competitor_vendor_product_id
-                INNER JOIN ProductVendor ON ProductVendor.vendor_product_id = TempVendorPricing.vendor_product_id
-                LEFT JOIN VendorURL ON VendorURL.vendor_product_id = ProductVendor.vendor_product_id
-                INNER JOIN Vendor ON Vendor.vendor_id = ProductVendor.vendor_id
-                WHERE
-                    RelatedProducts_Matching.vendor_product_id = '{vendor_product_id}'
-                    AND Vendor.vendor_id <> 10024
-                    AND TempVendorPricing.is_suspicious = '0'
-                    AND TempVendorPricing.vendorprice_price > 0
-                    AND TempVendorPricing.marked_as_unmatched = '0'
-                    AND ( TempVendorPricing.vendorprice_stock_text <> 'Out of stock online' OR TempVendorPricing.vendorprice_stock_text IS NULL )
-                    AND ( TempVendorPricing.vendorprice_date BETWEEN DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND CURDATE() );
+                WITH RankedData AS (
+                    SELECT
+                        TempVendorPricing.source,
+                        Vendor.vendor_name,
+                        TempVendorPricing.vendorprice_price,
+                        TempVendorPricing.vendorprice_finalprice,
+                        TempVendorPricing.vendorprice_shipping,
+                        TempVendorPricing.vendorprice_extra_discount,
+                        VendorURL.vendor_raw_url as vendor_url,
+                        ProductVendor.vendor_product_id,
+                        Vendor.vendor_id,
+                        TempVendorPricing.is_suspicious,
+                        TempVendorPricing.vendor_pricing_id,
+                        TempVendorPricing.vendorprice_date,
+                        TempVendorPricing.vendorprice_delivery_date,
+                        TempVendorPricing.vendorprice_isbackorder,
+                        TempVendorPricing.vendorprice_offers,
+                        TempVendorPricing.delivery_text,
+                        TempVendorPricing.vendorprice_stock_text,
+                        TempVendorPricing.vendorprice_stock,
+                        TempVendorPricing.offer_heading,
+                        TempVendorPricing.offer_text,
+                        TempVendorPricing.In_cart_price,
+                        TempVendorPricing.product_page_price,
+                        ROW_NUMBER() OVER (PARTITION BY ProductVendor.vendor_product_id ORDER BY TempVendorPricing.vendorprice_date DESC,TempVendorPricing.vendorprice_finalprice ASC) AS row_num
+                    FROM RelatedProducts_Matching
+                    INNER JOIN TempVendorPricing ON TempVendorPricing.vendor_product_id = RelatedProducts_Matching.competitor_vendor_product_id
+                    INNER JOIN ProductVendor ON ProductVendor.vendor_product_id = TempVendorPricing.vendor_product_id
+                    LEFT JOIN VendorURL ON VendorURL.vendor_product_id = ProductVendor.vendor_product_id
+                    INNER JOIN Vendor ON Vendor.vendor_id = ProductVendor.vendor_id
+                    WHERE
+                        RelatedProducts_Matching.vendor_product_id = '{vendor_product_id}'
+                        AND Vendor.vendor_id <> 10024
+                        AND TempVendorPricing.is_suspicious = '0'
+                        AND TempVendorPricing.vendorprice_price > 0
+                        AND TempVendorPricing.marked_as_unmatched = '0'
+                        AND ( TempVendorPricing.vendorprice_stock_text NOT LIKE '%Out of stock%' OR TempVendorPricing.vendorprice_stock_text IS NULL )
+                        AND ( TempVendorPricing.vendorprice_date BETWEEN DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND CURDATE() )
+                    ORDER BY TempVendorPricing.vendorprice_finalprice ASC
+                )
+                SELECT *
+                FROM RankedData
+                WHERE row_num = 1;
             """)
             result3 = this.fetchall()
             if result3:
@@ -205,7 +224,11 @@ def saveRanks(data):
                         "delivery_text_gmc" : row[14],
                         "delivery_text_website" : row[15],
                         "stock_text_website" : row[16],
-                        "stock" : row[17]
+                        "stock" : row[17],
+                        "offer_heading" : row[18],
+                        "offer_text" : row[19],
+                        "in_cart_price" : row[20],
+                        "product_page_price" : row[21]
                     })
             # --------------------------------------------------------------------------------
             # including our product's sister vendor (AF in case of HP) (HP in case of AF)
@@ -233,7 +256,11 @@ def saveRanks(data):
                         TempVendorPricing.vendorprice_offers,
                         TempVendorPricing.delivery_text,
                         TempVendorPricing.vendorprice_stock_text,
-                        TempVendorPricing.vendorprice_stock
+                        TempVendorPricing.vendorprice_stock,
+                        TempVendorPricing.offer_heading,
+                        TempVendorPricing.offer_text,
+                        TempVendorPricing.In_cart_price,
+                        TempVendorPricing.product_page_price
                     FROM TempVendorPricing
                     INNER JOIN ProductVendor ON TempVendorPricing.vendor_product_id = ProductVendor.vendor_product_id
                     LEFT JOIN VendorURL ON ProductVendor.vendor_product_id = VendorURL.vendor_product_id
@@ -366,7 +393,11 @@ def saveRanks(data):
                             "delivery_text_gmc" : result01[14],
                             "delivery_text_website" : result01[15],
                             "stock_text_website" : result01[16],
-                            "stock" : result01[17]
+                            "stock" : result01[17],
+                            "offer_heading" : result01[18],
+                            "offer_text" : result01[19],
+                            "in_cart_price" : result01[20],
+                            "product_page_price" : result01[21]
                         })
                 else:
                     logger.debug("Sister vendor not found.")
@@ -393,7 +424,11 @@ def saveRanks(data):
                     TempVendorPricing.vendorprice_offers,
                     TempVendorPricing.delivery_text,
                     TempVendorPricing.vendorprice_stock_text,
-                    TempVendorPricing.vendorprice_stock
+                    TempVendorPricing.vendorprice_stock,
+                    TempVendorPricing.offer_heading,
+                    TempVendorPricing.offer_text,
+                    TempVendorPricing.In_cart_price,
+                    TempVendorPricing.product_page_price
                 FROM TempVendorPricing
                 INNER JOIN ProductVendor ON TempVendorPricing.vendor_product_id = ProductVendor.vendor_product_id
                 LEFT JOIN VendorURL ON ProductVendor.vendor_product_id = VendorURL.vendor_product_id
@@ -418,10 +453,12 @@ def saveRanks(data):
             """)
             result0 = this.fetchone()
             include = False
+            # print(result0)
+            # exit()
             if result0:
                 result0 = list(result0)
-                last_7th_day_date_date = datetime.strptime(last_7th_day_date, '%Y-%m-%d').date()
-                if last_7th_day_date_date > result0[11]:
+                last_30th_day_date_date = datetime.strptime(last_7th_day_date, '%Y-%m-%d').date()
+                if last_30th_day_date_date > result0[11]:
                     logger.debug("Our vendor is outdated.")
                     # Fetching price from ERP data
                     this.execute(f"""
@@ -571,7 +608,11 @@ def saveRanks(data):
                         "delivery_text_gmc" : result0[14],
                         "delivery_text_website" : result0[15],
                         "stock_text_website" : result0[16],
-                        "stock" : result0[17]
+                        "stock" : result0[17],
+                        "offer_heading" : result0[18],
+                        "offer_text" : result0[19],
+                        "in_cart_price" : result0[20],
+                        "product_page_price" : result0[21]
                     })
                 else:
                     current_vendor_pricing_id = result0[10]
@@ -579,6 +620,7 @@ def saveRanks(data):
                 logger.debug("Our vendor not found.")
                 current_vendor_pricing_id = None
             # ----------------------------------------------------------------------------------------
+           
             if len(pricing_data) > 0 and foundOthers:
                 # removing exact duplicates
                 pricing_data = [dict(tupl) for tupl in {tuple(dict.items()) for dict in pricing_data}]
@@ -630,8 +672,8 @@ def saveRanks(data):
                                     current_vendor_index = index
                                     current_vendor_final_price = seller['final_price']
                                     current_vendor_pricing_id = seller['vendor_pricing_id']
-                                    last_7th_day_date_date = datetime.strptime(last_7th_day_date, "%Y-%m-%d").date()
-                                    if seller['vendorprice_date'] < last_7th_day_date_date:
+                                    last_30th_day_date_date = datetime.strptime(last_30th_day_date, "%Y-%m-%d").date()
+                                    if seller['vendorprice_date'] < last_30th_day_date_date:
                                         removeOurVendorFromRanking = True
                                     elif current_vendor_final_price == None:
                                         removeOurVendorFromRanking = True
@@ -648,8 +690,8 @@ def saveRanks(data):
                                     current_vendor_index = index
                                     current_vendor_final_price = seller['final_price']
                                     current_vendor_pricing_id = seller['vendor_pricing_id']
-                                    last_7th_day_date_date = datetime.strptime(last_7th_day_date, "%Y-%m-%d").date()
-                                    if seller['vendorprice_date'] < last_7th_day_date_date:
+                                    last_30th_day_date_date = datetime.strptime(last_30th_day_date, "%Y-%m-%d").date()
+                                    if seller['vendorprice_date'] < last_30th_day_date_date:
                                         removeOurVendorFromRanking = True
                                     elif current_vendor_final_price == None:
                                         removeOurVendorFromRanking = True
@@ -666,8 +708,8 @@ def saveRanks(data):
                                     current_vendor_index = index
                                     current_vendor_final_price = seller['final_price']
                                     current_vendor_pricing_id = seller['vendor_pricing_id']
-                                    last_7th_day_date_date = datetime.strptime(last_7th_day_date, "%Y-%m-%d").date()
-                                    if seller['vendorprice_date'] < last_7th_day_date_date:
+                                    last_30th_day_date_date = datetime.strptime(last_30th_day_date, "%Y-%m-%d").date()
+                                    if seller['vendorprice_date'] < last_30th_day_date_date:
                                         removeOurVendorFromRanking = True
                                     elif current_vendor_final_price == None:
                                         removeOurVendorFromRanking = True
@@ -684,8 +726,8 @@ def saveRanks(data):
                                     current_vendor_index = index
                                     current_vendor_final_price = seller['final_price']
                                     current_vendor_pricing_id = seller['vendor_pricing_id']
-                                    last_7th_day_date_date = datetime.strptime(last_7th_day_date, "%Y-%m-%d").date()
-                                    if seller['vendorprice_date'] < last_7th_day_date_date:
+                                    last_30th_day_date_date = datetime.strptime(last_30th_day_date, "%Y-%m-%d").date()
+                                    if seller['vendorprice_date'] < last_30th_day_date_date:
                                         removeOurVendorFromRanking = True
                                     elif current_vendor_final_price == None:
                                         removeOurVendorFromRanking = True
@@ -702,8 +744,8 @@ def saveRanks(data):
                                     current_vendor_index = index
                                     current_vendor_final_price = seller['final_price']
                                     current_vendor_pricing_id = seller['vendor_pricing_id']
-                                    last_7th_day_date_date = datetime.strptime(last_7th_day_date, "%Y-%m-%d").date()
-                                    if seller['vendorprice_date'] < last_7th_day_date_date:
+                                    last_30th_day_date_date = datetime.strptime(last_30th_day_date, "%Y-%m-%d").date()
+                                    if seller['vendorprice_date'] < last_30th_day_date_date:
                                         removeOurVendorFromRanking = True
                                     elif current_vendor_final_price == None:
                                         removeOurVendorFromRanking = True
@@ -719,8 +761,8 @@ def saveRanks(data):
                                 current_vendor_index = index
                                 current_vendor_final_price = seller['final_price']
                                 current_vendor_pricing_id = seller['vendor_pricing_id']
-                                last_7th_day_date_date = datetime.strptime(last_7th_day_date, "%Y-%m-%d").date()
-                                if seller['vendorprice_date'] < last_7th_day_date_date:
+                                last_30th_day_date_date = datetime.strptime(last_30th_day_date, "%Y-%m-%d").date()
+                                if seller['vendorprice_date'] < last_30th_day_date_date:
                                     removeOurVendorFromRanking = True
                                 elif current_vendor_final_price == None:
                                     removeOurVendorFromRanking = True
@@ -765,6 +807,11 @@ def saveRanks(data):
                             rankedVendors['first_vendor_stock_text_website'] = data['stock_text_website']
                             rankedVendors['first_vendor_price_date'] = data['vendorprice_date']
                             rankedVendors['first_vendor_stock'] = data['stock']
+                            rankedVendors['first_vendor_offer_heading'] = data['offer_heading']
+                            rankedVendors['first_vendor_offer_text'] = data['offer_text']
+                            rankedVendors['first_vendor_in_cart_price'] = data['in_cart_price']
+                            rankedVendors['first_vendor_product_page_price'] = data['product_page_price']
+                            
                             try:
                                 current_vendor_final_price
                             except:
@@ -799,6 +846,11 @@ def saveRanks(data):
                             rankedVendors['second_vendor_stock_text_website'] = data['stock_text_website']
                             rankedVendors['second_vendor_price_date'] = data['vendorprice_date']
                             rankedVendors['second_vendor_stock'] = data['stock']
+                            rankedVendors['second_vendor_offer_heading'] = data['offer_heading']
+                            rankedVendors['second_vendor_offer_text'] = data['offer_text']
+                            rankedVendors['second_vendor_in_cart_price'] = data['in_cart_price']
+                            rankedVendors['second_vendor_product_page_price'] = data['product_page_price']
+                            
                             try:
                                 current_vendor_final_price
                             except:
@@ -837,6 +889,11 @@ def saveRanks(data):
                             rankedVendors['third_vendor_stock_text_website'] = data['stock_text_website']
                             rankedVendors['third_vendor_price_date'] = data['vendorprice_date']
                             rankedVendors['third_vendor_stock'] = data['stock']
+                            rankedVendors['third_vendor_offer_heading'] = data['offer_heading']
+                            rankedVendors['third_vendor_offer_text'] = data['offer_text']
+                            rankedVendors['third_vendor_in_cart_price'] = data['in_cart_price']
+                            rankedVendors['third_vendor_product_page_price'] = data['product_page_price']
+                            
                         except Exception as e:
                             logger.debug(f"Rank 3 ERROR({vendor_product_id}) >> {e}")
                     elif rank == 4:
@@ -857,6 +914,11 @@ def saveRanks(data):
                             rankedVendors['fourth_vendor_stock_text_website'] = data['stock_text_website']
                             rankedVendors['fourth_vendor_price_date'] = data['vendorprice_date']
                             rankedVendors['fourth_vendor_stock'] = data['stock']
+                            rankedVendors['fourth_vendor_offer_heading'] = data['offer_heading']
+                            rankedVendors['fourth_vendor_offer_text'] = data['offer_text']
+                            rankedVendors['fourth_vendor_in_cart_price'] = data['in_cart_price']
+                            rankedVendors['fourth_vendor_product_page_price'] = data['product_page_price']
+                            
                         except Exception as e:
                             logger.debug(f"Rank 4 ERROR({vendor_product_id}) >> {e}")
                     elif rank == 5:
@@ -877,9 +939,15 @@ def saveRanks(data):
                             rankedVendors['fifth_vendor_stock_text_website'] = data['stock_text_website']
                             rankedVendors['fifth_vendor_price_date'] = data['vendorprice_date']
                             rankedVendors['fifth_vendor_stock'] = data['stock']
+                            rankedVendors['fifth_vendor_offer_heading'] = data['offer_heading']
+                            rankedVendors['fifth_vendor_offer_text'] = data['offer_text']
+                            rankedVendors['fifth_vendor_in_cart_price'] = data['in_cart_price']
+                            rankedVendors['fifth_vendor_product_page_price'] = data['product_page_price']
                         except Exception as e:
                             logger.debug(f"Rank 5 ERROR({vendor_product_id}) >> {e}")
                     rank += 1
+                # print(rankedVendors)
+                # exit()
                 # percentage
                 try: rankedVendors['percentage'] = percentage
                 except: pass
@@ -908,21 +976,29 @@ def saveRanks(data):
                         first_vendor_product_id = NULL, first_vendor_name = NULL, first_vendor_price = NULL, first_vendor_final_price = NULL, first_vendor_shipping = NULL,
                         first_vendor_extra_discount = NULL, first_vendor_product_url = NULL, first_vendor_source = NULL, first_vendor_delivery_date = NULL,
                         first_vendor_is_backorder = 'no', first_vendor_delivery_text_gmc = NULL, first_vendor_delivery_text_website = NULL, first_vendor_stock_text_website = NULL,
-                        first_vendor_price_date = NULL, first_vendor_stock = NULL, second_vendor_product_id = NULL, second_vendor_name = NULL, second_vendor_price = NULL,
+                        first_vendor_price_date = NULL, first_vendor_stock = NULL, first_vendor_offer_heading = NULL,first_vendor_offer_text = NULL,
+                        first_vendor_in_cart_price = NULL, first_vendor_product_page_price = NULL,
+                        second_vendor_product_id = NULL, second_vendor_name = NULL, second_vendor_price = NULL,
                         second_vendor_final_price = NULL, second_vendor_shipping = NULL, second_vendor_extra_discount = NULL, second_vendor_product_url = NULL,
                         second_vendor_source = NULL, second_vendor_delivery_date = NULL, second_vendor_is_backorder = 'no', second_vendor_delivery_text_gmc = NULL,
-                        second_vendor_delivery_text_website = NULL, second_vendor_stock_text_website = NULL, second_vendor_price_date = NULL, second_vendor_stock = NULL,
+                        second_vendor_delivery_text_website = NULL, second_vendor_stock_text_website = NULL, second_vendor_price_date = NULL, second_vendor_stock = NULL, second_vendor_offer_heading = NULL, second_vendor_offer_text = NULL,
+                        second_vendor_in_cart_price = NULL, second_vendor_product_page_price = NULL,
                         third_vendor_product_id = NULL, third_vendor_name = NULL, third_vendor_price = NULL, third_vendor_final_price = NULL, third_vendor_shipping = NULL,
                         third_vendor_extra_discount = NULL, third_vendor_product_url = NULL, third_vendor_source = NULL, third_vendor_delivery_date = NULL,
                         third_vendor_is_backorder = 'no', third_vendor_delivery_text_gmc = NULL, third_vendor_delivery_text_website = NULL, third_vendor_stock_text_website = NULL,
-                        third_vendor_price_date = NULL, third_vendor_stock = NULL, fourth_vendor_product_id = NULL, fourth_vendor_name = NULL, fourth_vendor_price = NULL,
+                        third_vendor_price_date = NULL, third_vendor_stock = NULL, third_vendor_offer_heading = NULL, third_vendor_offer_text = NULL,
+                        third_vendor_in_cart_price = NULL, third_vendor_product_page_price = NULL,
+                        fourth_vendor_product_id = NULL, fourth_vendor_name = NULL, fourth_vendor_price = NULL,
                         fourth_vendor_final_price = NULL, fourth_vendor_shipping = NULL, fourth_vendor_extra_discount = NULL, fourth_vendor_product_url = NULL,
                         fourth_vendor_source = NULL, fourth_vendor_delivery_date = NULL, fourth_vendor_is_backorder = 'no', fourth_vendor_delivery_text_gmc = NULL,
-                        fourth_vendor_delivery_text_website = NULL, fourth_vendor_stock_text_website = NULL, fourth_vendor_price_date = NULL, fourth_vendor_stock = NULL,
+                        fourth_vendor_delivery_text_website = NULL, fourth_vendor_stock_text_website = NULL, fourth_vendor_price_date = NULL, fourth_vendor_stock = NULL, fourth_vendor_offer_heading = NULL, fourth_vendor_offer_text = NULL,
+                        fourth_vendor_in_cart_price = NULL, fourth_vendor_product_page_price = NULL,
                         fifth_vendor_product_id = NULL, fifth_vendor_name = NULL, fifth_vendor_price = NULL, fifth_vendor_final_price = NULL, fifth_vendor_shipping = NULL,
                         fifth_vendor_extra_discount = NULL, fifth_vendor_product_url = NULL, fifth_vendor_source = NULL, fifth_vendor_delivery_date = NULL,
                         fifth_vendor_is_backorder = 'no', fifth_vendor_delivery_text_gmc = NULL, fifth_vendor_delivery_text_website = NULL, fifth_vendor_stock_text_website = NULL,
-                        fifth_vendor_price_date = NULL, fifth_vendor_stock = NULL, percentage = NULL, second_percentage = NULL, assumed_map_price = NULL, is_rp_calculated = '0'
+                        fifth_vendor_price_date = NULL, fifth_vendor_stock = NULL, fifth_vendor_offer_heading = NULL, fifth_vendor_offer_text = NULL,
+                        fifth_vendor_in_cart_price = NULL, fifth_vendor_product_page_price = NULL,
+                        percentage = NULL, second_percentage = NULL, assumed_map_price = NULL, is_rp_calculated = '0'
                     WHERE vendor_pricing_id = %s;""", (
                         current_vendor_pricing_id,
                     )
@@ -946,17 +1022,18 @@ def saveRanks(data):
                         vendorprice_isbackorder, is_active, vendorprice_offers, vendorprice_delivery_date, delivery_text, vendorprice_extra_discount, currency, rank, source, shipping_time,
                         product_condition, sales, average_price, is_found, is_suspicious, marketing_message, competitor_count, same_price_vendor_count,
                         first_vendor_product_id, first_vendor_name, first_vendor_price, first_vendor_final_price, first_vendor_shipping, first_vendor_extra_discount, first_vendor_product_url, first_vendor_source,
-                        first_vendor_delivery_date, first_vendor_is_backorder, first_vendor_delivery_text_gmc, first_vendor_delivery_text_website, first_vendor_stock_text_website, first_vendor_price_date, first_vendor_stock,
+                        first_vendor_delivery_date, first_vendor_is_backorder, first_vendor_delivery_text_gmc, first_vendor_delivery_text_website, first_vendor_stock_text_website, first_vendor_price_date, first_vendor_stock, first_vendor_offer_heading , first_vendor_offer_text, first_vendor_in_cart_price, first_vendor_product_page_price,
                         second_vendor_product_id, second_vendor_name, second_vendor_price, second_vendor_final_price, second_vendor_shipping, second_vendor_extra_discount, second_vendor_product_url, second_vendor_source,
-                        second_vendor_delivery_date, second_vendor_is_backorder, second_vendor_delivery_text_gmc, second_vendor_delivery_text_website, second_vendor_stock_text_website, second_vendor_price_date, second_vendor_stock,
+                        second_vendor_delivery_date, second_vendor_is_backorder, second_vendor_delivery_text_gmc, second_vendor_delivery_text_website, second_vendor_stock_text_website, second_vendor_price_date, second_vendor_stock, second_vendor_offer_heading, second_vendor_offer_text, second_vendor_in_cart_price, second_vendor_product_page_price,
                         third_vendor_product_id, third_vendor_name, third_vendor_price, third_vendor_final_price, third_vendor_shipping, third_vendor_extra_discount, third_vendor_product_url, third_vendor_source,
-                        third_vendor_delivery_date, third_vendor_is_backorder, third_vendor_delivery_text_gmc, third_vendor_delivery_text_website, third_vendor_stock_text_website, third_vendor_price_date, third_vendor_stock,
+                        third_vendor_delivery_date, third_vendor_is_backorder, third_vendor_delivery_text_gmc, third_vendor_delivery_text_website, third_vendor_stock_text_website, third_vendor_price_date, third_vendor_stock, third_vendor_offer_heading, third_vendor_offer_text,third_vendor_in_cart_price, third_vendor_product_page_price,
                         fourth_vendor_product_id, fourth_vendor_name, fourth_vendor_price, fourth_vendor_final_price, fourth_vendor_shipping, fourth_vendor_extra_discount, fourth_vendor_product_url, fourth_vendor_source,
-                        fourth_vendor_delivery_date, fourth_vendor_is_backorder, fourth_vendor_delivery_text_gmc, fourth_vendor_delivery_text_website, fourth_vendor_stock_text_website, fourth_vendor_price_date, fourth_vendor_stock,
+                        fourth_vendor_delivery_date, fourth_vendor_is_backorder, fourth_vendor_delivery_text_gmc, fourth_vendor_delivery_text_website, fourth_vendor_stock_text_website, fourth_vendor_price_date, fourth_vendor_stock, fourth_vendor_offer_heading, fourth_vendor_offer_text, fourth_vendor_in_cart_price, fourth_vendor_product_page_price,
                         fifth_vendor_product_id, fifth_vendor_name, fifth_vendor_price, fifth_vendor_final_price, fifth_vendor_shipping, fifth_vendor_extra_discount, fifth_vendor_product_url, fifth_vendor_source,
-                        fifth_vendor_delivery_date, fifth_vendor_is_backorder, fifth_vendor_delivery_text_gmc, fifth_vendor_delivery_text_website, fifth_vendor_stock_text_website, fifth_vendor_price_date, fifth_vendor_stock,
+                        fifth_vendor_delivery_date, fifth_vendor_is_backorder, fifth_vendor_delivery_text_gmc, fifth_vendor_delivery_text_website, fifth_vendor_stock_text_website, fifth_vendor_price_date, fifth_vendor_stock, fifth_vendor_offer_heading, fifth_vendor_offer_text, 
+                        fifth_vendor_in_cart_price, fifth_vendor_product_page_price,
                         percentage, second_percentage, assumed_map_price,
-                        rt, rp, rp_variation, rp_variation_sell_price, rp_coupon, achieved_gp, rp_criteria, is_rp_calculated
+                        rt, rp, rp_variation, rp_variation_sell_price, rp_coupon, achieved_gp, rp_criteria, is_rp_calculated,scraped_by_system,offer_heading,offer_text,In_cart_price,product_page_price
                     FROM TempVendorPricing
                     WHERE
                         vendor_pricing_id = %s
@@ -983,7 +1060,7 @@ def saveRanks(data):
                         pricing_data_for_history[90], pricing_data_for_history[91], pricing_data_for_history[92], pricing_data_for_history[93], pricing_data_for_history[94], pricing_data_for_history[95], 
                         pricing_data_for_history[96], pricing_data_for_history[97], pricing_data_for_history[98], pricing_data_for_history[99], pricing_data_for_history[100], pricing_data_for_history[101], 
                         pricing_data_for_history[102], pricing_data_for_history[103], pricing_data_for_history[104], pricing_data_for_history[105], pricing_data_for_history[106], pricing_data_for_history[107], 
-                        pricing_data_for_history[108], pricing_data_for_history[109], pricing_data_for_history[110], pricing_data_for_history[111], pricing_data_for_history[112]
+                        pricing_data_for_history[108], pricing_data_for_history[109], pricing_data_for_history[110], pricing_data_for_history[111], pricing_data_for_history[112], pricing_data_for_history[113],pricing_data_for_history[114],pricing_data_for_history[115],pricing_data_for_history[116],pricing_data_for_history[117],pricing_data_for_history[118],pricing_data_for_history[119],pricing_data_for_history[120],pricing_data_for_history[121],pricing_data_for_history[122],pricing_data_for_history[123],pricing_data_for_history[124],pricing_data_for_history[125],pricing_data_for_history[126],pricing_data_for_history[127],pricing_data_for_history[128],pricing_data_for_history[129],pricing_data_for_history[130],pricing_data_for_history[131],pricing_data_for_history[132],pricing_data_for_history[133],pricing_data_for_history[134],pricing_data_for_history[135],pricing_data_for_history[136],pricing_data_for_history[137]
                     ]
                 else: pricing_data_for_history_list = []
                 # check and insert/update ranking in history table
@@ -1006,102 +1083,92 @@ def savePricingHistory(data, vendor_id, update_query, update_values, pricing_dat
         if conn.is_connected():
             this = conn.cursor()
             pricing_history_table = f"z_{vendor_id}_VendorPricing"
-            vendor_product_id, vendorprice_date, source, product_condition = data
+            # vendor_product_id, vendorprice_date, source, product_condition = data
 
-            this.execute(f"""
-                SELECT vendor_pricing_id
-                FROM {pricing_history_table}
-                WHERE vendor_product_id = %s
-                  AND vendorprice_date = %s
-                  AND source = %s
-                  AND product_condition = %s
-                ORDER BY vendor_pricing_id DESC
-                LIMIT 1
-            """, (vendor_product_id, vendorprice_date, source, product_condition))
+            # this.execute(f"""
+            #     SELECT vendor_pricing_id
+            #     FROM {pricing_history_table}
+            #     WHERE vendor_product_id = %s
+            #       AND vendorprice_date = %s
+            #       AND source = %s
+            #       AND product_condition = %s
+            #     ORDER BY vendor_pricing_id DESC
+            #     LIMIT 1
+            # """, (vendor_product_id, vendorprice_date, source, product_condition))
 
-            result = this.fetchone()
-            if result:
-                vendor_pricing_id = result[0]
-                this.execute(f"""
-                    UPDATE {pricing_history_table}
-                    SET
-                        first_vendor_product_id = NULL, first_vendor_name = NULL, first_vendor_price = NULL, first_vendor_final_price = NULL, first_vendor_shipping = NULL,
-                        first_vendor_extra_discount = NULL, first_vendor_product_url = NULL, first_vendor_source = NULL, first_vendor_delivery_date = NULL,
-                        first_vendor_is_backorder = 'no', first_vendor_delivery_text_gmc = NULL, first_vendor_delivery_text_website = NULL, first_vendor_stock_text_website = NULL,
-                        first_vendor_price_date = NULL, first_vendor_stock = NULL, second_vendor_product_id = NULL, second_vendor_name = NULL, second_vendor_price = NULL,
-                        second_vendor_final_price = NULL, second_vendor_shipping = NULL, second_vendor_extra_discount = NULL, second_vendor_product_url = NULL,
-                        second_vendor_source = NULL, second_vendor_delivery_date = NULL, second_vendor_is_backorder = 'no', second_vendor_delivery_text_gmc = NULL,
-                        second_vendor_delivery_text_website = NULL, second_vendor_stock_text_website = NULL, second_vendor_price_date = NULL, second_vendor_stock = NULL,
-                        third_vendor_product_id = NULL, third_vendor_name = NULL, third_vendor_price = NULL, third_vendor_final_price = NULL, third_vendor_shipping = NULL,
-                        third_vendor_extra_discount = NULL, third_vendor_product_url = NULL, third_vendor_source = NULL, third_vendor_delivery_date = NULL,
-                        third_vendor_is_backorder = 'no', third_vendor_delivery_text_gmc = NULL, third_vendor_delivery_text_website = NULL, third_vendor_stock_text_website = NULL,
-                        third_vendor_price_date = NULL, third_vendor_stock = NULL, fourth_vendor_product_id = NULL, fourth_vendor_name = NULL, fourth_vendor_price = NULL,
-                        fourth_vendor_final_price = NULL, fourth_vendor_shipping = NULL, fourth_vendor_extra_discount = NULL, fourth_vendor_product_url = NULL,
-                        fourth_vendor_source = NULL, fourth_vendor_delivery_date = NULL, fourth_vendor_is_backorder = 'no', fourth_vendor_delivery_text_gmc = NULL,
-                        fourth_vendor_delivery_text_website = NULL, fourth_vendor_stock_text_website = NULL, fourth_vendor_price_date = NULL, fourth_vendor_stock = NULL,
-                        fifth_vendor_product_id = NULL, fifth_vendor_name = NULL, fifth_vendor_price = NULL, fifth_vendor_final_price = NULL, fifth_vendor_shipping = NULL,
-                        fifth_vendor_extra_discount = NULL, fifth_vendor_product_url = NULL, fifth_vendor_source = NULL, fifth_vendor_delivery_date = NULL,
-                        fifth_vendor_is_backorder = 'no', fifth_vendor_delivery_text_gmc = NULL, fifth_vendor_delivery_text_website = NULL, fifth_vendor_stock_text_website = NULL,
-                        fifth_vendor_price_date = NULL, fifth_vendor_stock = NULL, percentage = NULL, second_percentage = NULL, assumed_map_price = NULL, is_rp_calculated = '0'
-                    WHERE vendor_pricing_id = %s
-                """, (vendor_pricing_id,))
+            # result = this.fetchone()
+            # if result:
+            #     vendor_pricing_id = result[0]
+            #     this.execute(f"""
+            #         UPDATE {pricing_history_table}
+            #         SET
+            #             first_vendor_product_id = NULL, first_vendor_name = NULL, first_vendor_price = NULL, first_vendor_final_price = NULL, first_vendor_shipping = NULL,
+            #             first_vendor_extra_discount = NULL, first_vendor_product_url = NULL, first_vendor_source = NULL, first_vendor_delivery_date = NULL,
+            #             first_vendor_is_backorder = 'no', first_vendor_delivery_text_gmc = NULL, first_vendor_delivery_text_website = NULL, first_vendor_stock_text_website = NULL,
+            #             first_vendor_price_date = NULL, first_vendor_stock = NULL, second_vendor_product_id = NULL, second_vendor_name = NULL, second_vendor_price = NULL,
+            #             second_vendor_final_price = NULL, second_vendor_shipping = NULL, second_vendor_extra_discount = NULL, second_vendor_product_url = NULL,
+            #             second_vendor_source = NULL, second_vendor_delivery_date = NULL, second_vendor_is_backorder = 'no', second_vendor_delivery_text_gmc = NULL,
+            #             second_vendor_delivery_text_website = NULL, second_vendor_stock_text_website = NULL, second_vendor_price_date = NULL, second_vendor_stock = NULL,
+            #             third_vendor_product_id = NULL, third_vendor_name = NULL, third_vendor_price = NULL, third_vendor_final_price = NULL, third_vendor_shipping = NULL,
+            #             third_vendor_extra_discount = NULL, third_vendor_product_url = NULL, third_vendor_source = NULL, third_vendor_delivery_date = NULL,
+            #             third_vendor_is_backorder = 'no', third_vendor_delivery_text_gmc = NULL, third_vendor_delivery_text_website = NULL, third_vendor_stock_text_website = NULL,
+            #             third_vendor_price_date = NULL, third_vendor_stock = NULL, fourth_vendor_product_id = NULL, fourth_vendor_name = NULL, fourth_vendor_price = NULL,
+            #             fourth_vendor_final_price = NULL, fourth_vendor_shipping = NULL, fourth_vendor_extra_discount = NULL, fourth_vendor_product_url = NULL,
+            #             fourth_vendor_source = NULL, fourth_vendor_delivery_date = NULL, fourth_vendor_is_backorder = 'no', fourth_vendor_delivery_text_gmc = NULL,
+            #             fourth_vendor_delivery_text_website = NULL, fourth_vendor_stock_text_website = NULL, fourth_vendor_price_date = NULL, fourth_vendor_stock = NULL,
+            #             fifth_vendor_product_id = NULL, fifth_vendor_name = NULL, fifth_vendor_price = NULL, fifth_vendor_final_price = NULL, fifth_vendor_shipping = NULL,
+            #             fifth_vendor_extra_discount = NULL, fifth_vendor_product_url = NULL, fifth_vendor_source = NULL, fifth_vendor_delivery_date = NULL,
+            #             fifth_vendor_is_backorder = 'no', fifth_vendor_delivery_text_gmc = NULL, fifth_vendor_delivery_text_website = NULL, fifth_vendor_stock_text_website = NULL,
+            #             fifth_vendor_price_date = NULL, fifth_vendor_stock = NULL, percentage = NULL, second_percentage = NULL, assumed_map_price = NULL, is_rp_calculated = '0'
+            #         WHERE vendor_pricing_id = %s
+            #     """, (vendor_pricing_id,))
+            #     conn.commit()
+
+            #     if this.rowcount == 1:
+            #         logger.debug(f"Ranks are set NULL for vendor_pricing_id ({vendor_pricing_id}) in history table.")
+
+            #     # Update the ranking data
+            #     update_query = update_query.replace('TempVendorPricing', pricing_history_table)
+
+            #     # Replace WHERE clause and keep placeholder %s
+            #     if 'vendor_pricing_id = %s' not in update_query:
+            #         update_query = update_query.split("WHERE")[0] + " WHERE vendor_pricing_id = %s"
+
+            #     update_values = list(update_values) + [vendor_pricing_id]
+
+            #     this.execute(update_query, tuple(update_values))
+            #     conn.commit()
+
+            #     if this.rowcount == 1:
+            #         logger.debug(f"Pricing data updated for vendor_pricing_id ({vendor_pricing_id}) in history table.")
+            # else:
+            if len(pricing_data_for_history_list) > 0:
+                # Insert data if not found
+                insert_query = f"""
+                    INSERT INTO {pricing_history_table} (
+                       vendor_product_id,
+                        vendorprice_price, vendorprice_finalprice, vendorprice_date, vendorprice_shipping, vendorprice_return, vendorprice_stock, vendorprice_stock_text, vendorprice_stockdate,
+                        vendorprice_isbackorder, is_active, vendorprice_offers, vendorprice_delivery_date, delivery_text, vendorprice_extra_discount, currency, rank, source, shipping_time,
+                        product_condition, sales, average_price, is_found, is_suspicious, marketing_message, competitor_count, same_price_vendor_count,
+                        first_vendor_product_id, first_vendor_name, first_vendor_price, first_vendor_final_price, first_vendor_shipping, first_vendor_extra_discount, first_vendor_product_url, first_vendor_source,
+                        first_vendor_delivery_date, first_vendor_is_backorder, first_vendor_delivery_text_gmc, first_vendor_delivery_text_website, first_vendor_stock_text_website, first_vendor_price_date, first_vendor_stock, first_vendor_offer_heading , first_vendor_offer_text,first_vendor_in_cart_price, first_vendor_product_page_price,
+                        second_vendor_product_id, second_vendor_name, second_vendor_price, second_vendor_final_price, second_vendor_shipping, second_vendor_extra_discount, second_vendor_product_url, second_vendor_source,
+                        second_vendor_delivery_date, second_vendor_is_backorder, second_vendor_delivery_text_gmc, second_vendor_delivery_text_website, second_vendor_stock_text_website, second_vendor_price_date, second_vendor_stock, second_vendor_offer_heading, second_vendor_offer_text,second_vendor_in_cart_price, second_vendor_product_page_price,
+                        third_vendor_product_id, third_vendor_name, third_vendor_price, third_vendor_final_price, third_vendor_shipping, third_vendor_extra_discount, third_vendor_product_url, third_vendor_source,
+                        third_vendor_delivery_date, third_vendor_is_backorder, third_vendor_delivery_text_gmc, third_vendor_delivery_text_website, third_vendor_stock_text_website, third_vendor_price_date, third_vendor_stock, third_vendor_offer_heading, third_vendor_offer_text,third_vendor_in_cart_price, third_vendor_product_page_price,
+                        fourth_vendor_product_id, fourth_vendor_name, fourth_vendor_price, fourth_vendor_final_price, fourth_vendor_shipping, fourth_vendor_extra_discount, fourth_vendor_product_url, fourth_vendor_source,
+                        fourth_vendor_delivery_date, fourth_vendor_is_backorder, fourth_vendor_delivery_text_gmc, fourth_vendor_delivery_text_website, fourth_vendor_stock_text_website, fourth_vendor_price_date, fourth_vendor_stock, fourth_vendor_offer_heading, fourth_vendor_offer_text, fourth_vendor_in_cart_price, fourth_vendor_product_page_price,
+                        fifth_vendor_product_id, fifth_vendor_name, fifth_vendor_price, fifth_vendor_final_price, fifth_vendor_shipping, fifth_vendor_extra_discount, fifth_vendor_product_url, fifth_vendor_source, 
+                        fifth_vendor_delivery_date, fifth_vendor_is_backorder, fifth_vendor_delivery_text_gmc, fifth_vendor_delivery_text_website, fifth_vendor_stock_text_website, fifth_vendor_price_date, fifth_vendor_stock, fifth_vendor_offer_heading, fifth_vendor_offer_text,fifth_vendor_in_cart_price, fifth_vendor_product_page_price,
+                        percentage, second_percentage, assumed_map_price,
+                        rt, rp, rp_variation, rp_variation_sell_price, rp_coupon, achieved_gp, rp_criteria, is_rp_calculated,scraped_by_system, offer_heading,offer_text,In_cart_price,product_page_price
+                    ) VALUES ({','.join(['%s'] * len(pricing_data_for_history_list))})
+                """
+                this.execute(insert_query, tuple(pricing_data_for_history_list))
                 conn.commit()
 
                 if this.rowcount == 1:
-                    logger.debug(f"Ranks are set NULL for vendor_pricing_id ({vendor_pricing_id}) in history table.")
-
-                # Update the ranking data
-                update_query = update_query.replace('TempVendorPricing', pricing_history_table)
-
-                # Replace WHERE clause and keep placeholder %s
-                if 'vendor_pricing_id = %s' not in update_query:
-                    update_query = update_query.split("WHERE")[0] + " WHERE vendor_pricing_id = %s"
-
-                update_values = list(update_values) + [vendor_pricing_id]
-
-                this.execute(update_query, tuple(update_values))
-                conn.commit()
-
-                if this.rowcount == 1:
-                    logger.debug(f"Pricing data updated for vendor_pricing_id ({vendor_pricing_id}) in history table.")
-            else:
-                if len(pricing_data_for_history_list) > 0:
-                    # Insert data if not found
-                    insert_query = f"""
-                        INSERT INTO {pricing_history_table} (
-                            vendor_product_id, vendorprice_price, vendorprice_finalprice, vendorprice_date, vendorprice_shipping, vendorprice_return,
-                            vendorprice_stock, vendorprice_stock_text, vendorprice_stockdate, vendorprice_isbackorder, is_active, vendorprice_offers,
-                            vendorprice_delivery_date, delivery_text, vendorprice_extra_discount, currency, rank, source, shipping_time, product_condition,
-                            sales, average_price, is_found, is_suspicious, marketing_message, competitor_count, same_price_vendor_count,
-                            first_vendor_product_id, first_vendor_name, first_vendor_price, first_vendor_final_price, first_vendor_shipping,
-                            first_vendor_extra_discount, first_vendor_product_url, first_vendor_source, first_vendor_delivery_date,
-                            first_vendor_is_backorder, first_vendor_delivery_text_gmc, first_vendor_delivery_text_website,
-                            first_vendor_stock_text_website, first_vendor_price_date, first_vendor_stock,
-                            second_vendor_product_id, second_vendor_name, second_vendor_price, second_vendor_final_price,
-                            second_vendor_shipping, second_vendor_extra_discount, second_vendor_product_url, second_vendor_source,
-                            second_vendor_delivery_date, second_vendor_is_backorder, second_vendor_delivery_text_gmc,
-                            second_vendor_delivery_text_website, second_vendor_stock_text_website, second_vendor_price_date,
-                            second_vendor_stock, third_vendor_product_id, third_vendor_name, third_vendor_price, third_vendor_final_price,
-                            third_vendor_shipping, third_vendor_extra_discount, third_vendor_product_url, third_vendor_source,
-                            third_vendor_delivery_date, third_vendor_is_backorder, third_vendor_delivery_text_gmc,
-                            third_vendor_delivery_text_website, third_vendor_stock_text_website, third_vendor_price_date,
-                            third_vendor_stock, fourth_vendor_product_id, fourth_vendor_name, fourth_vendor_price,
-                            fourth_vendor_final_price, fourth_vendor_shipping, fourth_vendor_extra_discount, fourth_vendor_product_url,
-                            fourth_vendor_source, fourth_vendor_delivery_date, fourth_vendor_is_backorder,
-                            fourth_vendor_delivery_text_gmc, fourth_vendor_delivery_text_website, fourth_vendor_stock_text_website,
-                            fourth_vendor_price_date, fourth_vendor_stock, fifth_vendor_product_id, fifth_vendor_name,
-                            fifth_vendor_price, fifth_vendor_final_price, fifth_vendor_shipping, fifth_vendor_extra_discount,
-                            fifth_vendor_product_url, fifth_vendor_source, fifth_vendor_delivery_date, fifth_vendor_is_backorder,
-                            fifth_vendor_delivery_text_gmc, fifth_vendor_delivery_text_website, fifth_vendor_stock_text_website,
-                            fifth_vendor_price_date, fifth_vendor_stock, percentage, second_percentage, assumed_map_price,
-                            rt, rp, rp_variation, rp_variation_sell_price, rp_coupon, achieved_gp, rp_criteria, is_rp_calculated
-                        ) VALUES ({','.join(['%s'] * len(pricing_data_for_history_list))})
-                    """
-                    this.execute(insert_query, tuple(pricing_data_for_history_list))
-                    conn.commit()
-
-                    if this.rowcount == 1:
-                        logger.debug(f"Pricing data inserted for vendor_pricing_id ({this.lastrowid}) in history table.")
+                    logger.debug(f"Pricing data inserted for vendor_pricing_id ({this.lastrowid}) in history table.")
     except mysql.connector.Error as e:
         logger.debug(f"MySQL ERROR savePricingHistory() >> {e}")
     finally:
@@ -1115,7 +1182,7 @@ def products(vendor_id, product_id):
         conn = mysql.connector.connect(host=HOST, database=DB, user=USER, password=PASS)
         if conn.is_connected():
             this = conn.cursor()
-            this.execute(f"""
+            this.execute("""
                 SELECT
                     DISTINCT ProductVendor.vendor_product_id,
                     ProductVendor.vendor_id,
@@ -1124,9 +1191,9 @@ def products(vendor_id, product_id):
                 INNER JOIN ProductVendor ON ProductVendor.product_id = Product.product_id
                 INNER JOIN Vendor ON Vendor.vendor_id = ProductVendor.vendor_id
                 WHERE
-                    ProductVendor.vendor_id = {vendor_id}
-                    AND Product.product_id = {product_id}
-            """)
+                    ProductVendor.vendor_id = %s
+                    AND Product.product_id = %s
+            """, (vendor_id, product_id))
             result = this.fetchall()
             if len(result) > 0:
                 return result
@@ -1150,9 +1217,16 @@ def commence(vendorID, productID):
     if len(vendorsProducts) > 0:
         for vendorProduct in vendorsProducts:
             saveRanks(vendorProduct)
+            
     else:
         logger.debug(f'Not found any product (PID: {productID}) to evaluate ranking.')
 
     finish = time.perf_counter()
     logger.debug(f'Finished making ranking of the product in {round(finish - start, 2)} second(s)')
     
+    
+# if __name__ == "__main__":
+#     # Example usage
+#     vendorID = 10012
+#     productID = 346671
+#     commence(vendorID, productID)
