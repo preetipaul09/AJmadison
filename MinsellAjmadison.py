@@ -372,9 +372,6 @@ def scraper_unit(vendor_product_id, product_id, product_mpn, url, vendor_url, ve
         print(temp, product_id)
 
         if temp['vendorprice_price'] is None:
-            Valid_for_Direct_Website_Scraping = '0'
-            Not_Valid_for_Direct_Website_Scraping_Reason = 'Call for best price auto.'
-            ProductVendorValidProduct(vendor_product_id,Valid_for_Direct_Website_Scraping,Not_Valid_for_Direct_Website_Scraping_Reason) 
             logger.warning(f"No price found for product ID {product_id}")
             with open("priceNotFound.txt", "a") as file:
                 file.write(f"{vendor_product_id}\n")
