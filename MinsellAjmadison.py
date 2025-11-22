@@ -255,7 +255,7 @@ def scraper_worker(vendor_url, vendor_id, file_path):
         except Exception as e:
             logger.error(f"Error processing {url}: {e}")
 
-def scraper_unit(vendor_product_id, product_id, product_mpn, url, vendor_url, vendor_id):
+def scraper_unit(vendor_product_id, product_id, given_product_mpn, url, vendor_url, vendor_id):
     try:
         temp = {}
         logger.debug(url)
@@ -281,109 +281,131 @@ def scraper_unit(vendor_product_id, product_id, product_mpn, url, vendor_url, ve
         if not title:
             logger.warning(f"No title found after {max_retries} retries for product ID {product_id}")
             return None
-
-        temp['vendor_product_id'] = vendor_product_id
-        temp['vendorprice_price'] = None
-        temp['vendorprice_finalprice'] = None
-        temp['msrp'] = None
-
-        # Price
-        price_elements = driver.find_elements(By.CSS_SELECTOR, 'div[itemprop="price"] span')
-        price_text = price_elements[0].get_attribute("innerText").strip() if price_elements else ""
-
-        if '-' in price_text:
-            print(f"Skipping product due to base price range: {price_text}")
-            return None
-
-        if price_text:
-            # Remove unwanted symbols
-            clean_price = (
-                price_text.replace("$", "")
-                .replace(",", "")
-                .replace("Rs.", "")
-                .replace(r"\ea", "")
-                .strip()
-            )
-
-            # Handle case like '842500' (where last 2 digits are cents)
-            if clean_price.replace(".", "").isdigit():
-                if "." not in clean_price and len(clean_price) > 2:
-                    clean_price = clean_price[:-2] + "." + clean_price[-2:]
-
-            base_price = f"{float(clean_price):.2f}"
-
+        
+        scraped_product_mpn_tag = driver.find_element(By.CSS_SELECTOR,'input[name="sku"]')
+        if scraped_product_mpn_tag:
+            scraped_product_mpn = scraped_product_mpn_tag.get_attribute('value')
+            temp["product_mpn"] = scraped_product_mpn
         else:
-            # Fallback selector
-            price_element = driver.find_element(
-                By.CSS_SELECTOR,
-                'div#package-root div.Package_add-to-cart-overlay__Q0xHM.Package_add-to-cart-overlay-desktop__cyRgA p'
-            )
+            scraped_product_mpn = None
+            temp["product_mpn"] = None
 
-            price_text = price_element.get_attribute("innerText") if price_element else ""
-            clean_price = (
-                price_text.replace("$", "")
-                .replace(",", "")
-                .replace("Rs.", "")
-                .replace(r"\ea", "")
-                .strip())
-            if clean_price.replace(".", "").isdigit():
-                if "." not in clean_price and len(clean_price) > 2:
-                    clean_price = clean_price[:-2] + "." + clean_price[-2:]
-            base_price = f"{float(clean_price):.2f}" if clean_price else None
+        given_product_mpn = (given_product_mpn).strip().lower() 
+        scraped_product_mpn = (scraped_product_mpn).strip().lower()
 
-        # MSRP
-        try:
-            try:
-                msrp_element = driver.find_element(By.CSS_SELECTOR, 'td[itemprop="priceSpecification"] del')
-            except NoSuchElementException:
-                msrp_element = driver.find_element(
-                    By.CSS_SELECTOR,
-                    'div#package-root div.Package_add-to-cart-overlay__Q0xHM.Package_add-to-cart-overlay-desktop__cyRgA p.PackagePriceMain_price-list__ewa3z'
-                )
-            msrp_text = msrp_element.get_attribute("innerText").strip()
-            clean_msrp = (
-                msrp_text.replace("$", "")
-                .replace(",", "")
-                .replace("Rs.", "")
-                .replace(r"\ea", "")
-                .strip()
-            )
-
-            if clean_msrp.replace(".", "").isdigit():
-                if "." not in clean_msrp and len(clean_msrp) > 2:
-                    clean_msrp = clean_msrp[:-2] + "." + clean_msrp[-2:]
-
-                product_msrp = f"{float(clean_msrp):.2f}"
-            else:
-                product_msrp = None
-        except NoSuchElementException:
-            product_msrp = None
-
-        temp['vendorprice_price'] = base_price
-        temp['vendorprice_finalprice'] = base_price
-        temp['msrp'] = product_msrp
-        temp['discount'] = 0.00
-        temp["vendorprice_stock_text"] = None
-        temp['source'] = "direct_from_website"
-        temp['product_condition'] = "New"
-        temp['no_of_pieces'] = None
-        temp['vendorprice_additional_savings'] = 0.00
-
-        print(temp, product_id)
-
-        if temp['vendorprice_price'] is None:
-            logger.warning(f"No price found for product ID {product_id}")
-            with open("priceNotFound.txt", "a") as file:
-                file.write(f"{vendor_product_id}\n")
+        if given_product_mpn != scraped_product_mpn:
+            logger.warning(f"MPN mismatch for {url}: given_product_mpn:{given_product_mpn}, scraped_product_mpn:{scraped_product_mpn}")
+            Valid_for_Direct_Website_Scraping = '0'
+            Not_Valid_for_Direct_Website_Scraping_Reason = 'MPN not matched auto.'
+            ProductVendorValidProduct(vendor_product_id,Valid_for_Direct_Website_Scraping,Not_Valid_for_Direct_Website_Scraping_Reason)
+            with open("OldMpnNotMatched.txt", mode="a", encoding="utf-8") as file:
+                file.write(f"{url} | given_product_mpn: {given_product_mpn} | scraped_product_mpn: {scraped_product_mpn}\n")
             return
         else:
-            vendorTempPricing(temp)
-            # vendorZPricing(temp, vendor_id)
-            evalRanking(vendor_id, product_id)
+            logger.warning(f"MPN matched for {url}: given_product_mpn:{given_product_mpn}, scraped_product_mpn:{scraped_product_mpn}")
 
-        if temp["msrp"]:
-            productMsrpUpdate(product_id, temp)
-            productVendorMsrpUpdate(temp)
+            temp['vendor_product_id'] = vendor_product_id
+            temp['vendorprice_price'] = None
+            temp['vendorprice_finalprice'] = None
+            temp['msrp'] = None
+
+            # Price
+            price_elements = driver.find_elements(By.CSS_SELECTOR, 'div[itemprop="price"] span')
+            price_text = price_elements[0].get_attribute("innerText").strip() if price_elements else ""
+
+            if '-' in price_text:
+                print(f"Skipping product due to base price range: {price_text}")
+                return None
+
+            if price_text:
+                # Remove unwanted symbols
+                clean_price = (
+                    price_text.replace("$", "")
+                    .replace(",", "")
+                    .replace("Rs.", "")
+                    .replace(r"\ea", "")
+                    .strip()
+                )
+
+                # Handle case like '842500' (where last 2 digits are cents)
+                if clean_price.replace(".", "").isdigit():
+                    if "." not in clean_price and len(clean_price) > 2:
+                        clean_price = clean_price[:-2] + "." + clean_price[-2:]
+
+                base_price = f"{float(clean_price):.2f}"
+
+            else:
+                # Fallback selector
+                price_element = driver.find_element(
+                    By.CSS_SELECTOR,
+                    'div#package-root div.Package_add-to-cart-overlay__Q0xHM.Package_add-to-cart-overlay-desktop__cyRgA p'
+                )
+
+                price_text = price_element.get_attribute("innerText") if price_element else ""
+                clean_price = (
+                    price_text.replace("$", "")
+                    .replace(",", "")
+                    .replace("Rs.", "")
+                    .replace(r"\ea", "")
+                    .strip())
+                if clean_price.replace(".", "").isdigit():
+                    if "." not in clean_price and len(clean_price) > 2:
+                        clean_price = clean_price[:-2] + "." + clean_price[-2:]
+                base_price = f"{float(clean_price):.2f}" if clean_price else None
+
+            # MSRP
+            try:
+                try:
+                    msrp_element = driver.find_element(By.CSS_SELECTOR, 'td[itemprop="priceSpecification"] del')
+                except NoSuchElementException:
+                    msrp_element = driver.find_element(
+                        By.CSS_SELECTOR,
+                        'div#package-root div.Package_add-to-cart-overlay__Q0xHM.Package_add-to-cart-overlay-desktop__cyRgA p.PackagePriceMain_price-list__ewa3z'
+                    )
+                msrp_text = msrp_element.get_attribute("innerText").strip()
+                clean_msrp = (
+                    msrp_text.replace("$", "")
+                    .replace(",", "")
+                    .replace("Rs.", "")
+                    .replace(r"\ea", "")
+                    .strip()
+                )
+
+                if clean_msrp.replace(".", "").isdigit():
+                    if "." not in clean_msrp and len(clean_msrp) > 2:
+                        clean_msrp = clean_msrp[:-2] + "." + clean_msrp[-2:]
+
+                    product_msrp = f"{float(clean_msrp):.2f}"
+                else:
+                    product_msrp = None
+            except NoSuchElementException:
+                product_msrp = None
+
+            temp['vendorprice_price'] = base_price
+            temp['vendorprice_finalprice'] = base_price
+            temp['msrp'] = product_msrp
+            temp['discount'] = 0.00
+            temp["vendorprice_stock_text"] = None
+            temp['source'] = "direct_from_website"
+            temp['product_condition'] = "New"
+            temp['no_of_pieces'] = None
+            temp['vendorprice_additional_savings'] = 0.00
+
+            print(temp, product_id)
+
+            if temp['vendorprice_price'] is None:
+                logger.warning(f"No price found for product ID {product_id}")
+                with open("priceNotFound.txt", "a") as file:
+                    file.write(f"{vendor_product_id}\n")
+                return
+            else:
+                vendorTempPricing(temp)
+                # vendorZPricing(temp, vendor_id)
+                evalRanking(vendor_id, product_id)
+
+            if temp["msrp"]:
+                productMsrpUpdate(product_id, temp)
+                productVendorMsrpUpdate(temp)
 
     except Exception as e:
         logger.error(f"An error occurred in scraper_unit: {e}")
@@ -953,6 +975,5 @@ if __name__ == '__main__':
         logger.info(f'Finished processes in {round(finish - start, 2)} second(s)')
         logger.info('----------------------------------- END -----------------------------------')
         print(f'Finished processes in {round(finish - start, 2)} second(s)')
-
     except Exception as e:
         logger.error(f"An error occurred: {e}")
